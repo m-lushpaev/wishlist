@@ -1,0 +1,22 @@
+{{define "reservation.html"}}<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Бронь · {{.Wish.Name}}</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main class="narrow">
+    <p class="eyebrow">reservation_</p>
+    <h1>{{.Wish.Name}}</h1>
+    <p>Подарок зарезервирован. Сохрани адрес этой страницы: только по нему можно отменить бронь.</p>
+    <form method="post" action="/reservation/{{.Token}}/cancel">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <button class="secondary" type="submit">Отменить бронь</button>
+    </form>
+    <p><a href="/">← вернуться к списку</a></p>
+  </main>
+</body>
+</html>{{end}}

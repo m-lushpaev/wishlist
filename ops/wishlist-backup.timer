@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily wishlist SQLite backup
+
+[Timer]
+OnCalendar=*-*-* 03:20:00 UTC
+Persistent=true
+RandomizedDelaySec=10m
+
+[Install]
+WantedBy=timers.target

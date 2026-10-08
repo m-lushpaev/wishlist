@@ -1,0 +1,23 @@
+[Unit]
+Description=Deploy public wishlist from GitHub main
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=wishlist
+Group=wishlist
+ExecStart=/usr/bin/python3 /usr/local/libexec/wishlist-update.py
+Environment=GIT_TERMINAL_PROMPT=0
+Environment=HOME=/var/lib/wishlist
+WorkingDirectory=/var/lib/wishlist
+TimeoutStartSec=90
+MemoryMax=96M
+CPUQuota=25%
+UMask=0022
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/wishlist /srv/wishlist
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6

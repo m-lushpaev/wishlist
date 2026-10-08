@@ -1,0 +1,9 @@
+OPERATIONS.md
+.DS_Store
+__pycache__/
+*.pyc
+kit-nftables.nft
+/build/
+/site/index.html.tmp
+/dist/
+wishlist.db*

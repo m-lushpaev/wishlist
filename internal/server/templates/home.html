@@ -1,0 +1,59 @@
+{{define "home.html"}}<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Личный вишлист Максима.">
+  <title>Вишлист · Максим</title>
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/static/htmx.min.js" defer></script>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>wishlist_</h1>
+      <p>Максим. Вещи, которые хочу.</p>
+    </header>
+
+    <nav class="filters" aria-label="Фильтры">
+      <a href="/?status=all" {{if eq .ActiveStatus "all"}}aria-current="page"{{end}}>все</a>
+      <a href="/?status=available" {{if eq .ActiveStatus "available"}}aria-current="page"{{end}}>свободные</a>
+      <a href="/?status=reserved" {{if eq .ActiveStatus "reserved"}}aria-current="page"{{end}}>занятые</a>
+      {{range .Categories}}<a href="/?category={{.}}" {{if eq $.ActiveCategory .}}aria-current="page"{{end}}>{{.}}</a>{{end}}
+    </nav>
+
+    <ol class="wishes">
+      {{range .Wishes}}{{template "wish" .}}{{else}}<li class="empty">Здесь пока ничего нет.</li>{{end}}
+    </ol>
+    <footer><a href="https://github.com/m-lushpaev/wishlist">source</a></footer>
+  </main>
+</body>
+</html>{{end}}
+
+{{define "wish"}}<li class="wish{{if .Reserved}} is-reserved{{end}}" id="wish-{{.Wish.ID}}">
+  <div class="wish-copy">
+    <p class="eyebrow">{{.Wish.Category}} · {{if .Reserved}}reserved{{else}}available{{end}}</p>
+    <h2><a href="{{.Wish.URL}}" rel="noreferrer">{{.Wish.Name}}</a></h2>
+    <p>{{.Wish.Description}}</p>
+    {{if .Wish.Note}}<p class="note">{{.Wish.Note}}</p>{{end}}
+    {{if .Error}}<p class="form-error" role="alert">{{.Error}}</p>{{end}}
+    {{if .Reserved}}
+      <p class="status">Уже зарезервировано.</p>
+      {{if .CancelToken}}<p class="success">Готово. Сохрани <a href="/reservation/{{.CancelToken}}">секретную ссылку</a>, чтобы при необходимости отменить бронь.</p>{{end}}
+    {{else}}
+      <details>
+        <summary>Зарезервировать</summary>
+        <form method="post" action="/reserve/{{.Wish.ID}}" hx-post="/reserve/{{.Wish.ID}}" hx-target="closest .wish" hx-swap="outerHTML" hx-disabled-elt="find button">
+          <input type="hidden" name="csrf" value="{{.CSRF}}">
+          <label>Имя <span>(необязательно)</span><input name="name" maxlength="80" autocomplete="name"></label>
+          <label>Комментарий <span>(необязательно)</span><textarea name="note" maxlength="400" rows="2"></textarea></label>
+          <label class="trap" aria-hidden="true">Website<input name="website" tabindex="-1" autocomplete="off"></label>
+          <button type="submit">Подтвердить бронь</button>
+          <small>Имя и комментарий не показываются на публичной странице.</small>
+        </form>
+      </details>
+    {{end}}
+  </div>
+  <img src="/{{.Wish.Image}}" alt="{{.Wish.Name}}" width="320" height="320" loading="lazy">
+</li>{{end}}
