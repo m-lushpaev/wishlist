@@ -61,3 +61,22 @@ footer { margin-top: 3rem; }
 @media (prefers-reduced-motion: no-preference) {
   .htmx-request button { opacity: .55; }
 }
+
+.intro { max-width: 35rem; margin-top: 1.5rem; color: var(--muted); }
+.profiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.profile-card { display: grid; grid-template-columns: 1fr auto; gap: .5rem; padding: 1.75rem; border: 1px solid var(--line); text-decoration: none; }
+.profile-card .eyebrow { grid-column: 1 / -1; }
+.profile-card:hover { border-color: var(--accent); }
+.profile-name { font-size: clamp(1.5rem, 4vw, 2.25rem); line-height: 1.2; }
+.profile-arrow { font-size: 1.5rem; }
+.button-link { display: inline-block; margin-top: 1rem; padding: .65rem .9rem; background: var(--ink); color: var(--paper); text-decoration: none; }
+.admin-wish { display: flex; justify-content: space-between; gap: 1rem; padding: 1.25rem 0; border-bottom: 1px solid var(--line); }
+.section-title { margin-top: 2.5rem; }
+.editor { max-width: none; }
+.editor-preview { max-width: 100%; height: 12rem; object-fit: contain; justify-self: start; }
+.editor-actions { border-top: 1px solid var(--line); margin-top: 2rem; padding-top: 1rem; }
+.profile-notice { padding: .8rem 1rem; border-left: 3px solid var(--accent); }
+select { width: 100%; min-width: 0; padding: .65rem; font: inherit; color: inherit; background: transparent; border: 1px solid var(--ink); }
+select:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.empty { padding: 2rem 0; color: var(--muted); }
+@media (max-width: 500px) { .profiles { grid-template-columns: 1fr; } .profile-card { padding: 1.25rem; } .admin-wish { flex-direction: column; } }

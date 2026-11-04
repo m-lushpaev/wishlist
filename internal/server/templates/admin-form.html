@@ -1,0 +1,71 @@
+{{define "admin-form.html"}}<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>{{if .IsNew}}Новый подарок{{else}}Изменить подарок{{end}} · {{.Profile.Name}}</title>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<main class="narrow">
+<header>
+<p class="eyebrow">управление · {{.User}}</p>
+<p>
+<a href="/admin/{{.Profile.Slug}}">← {{.Profile.Name}}</a>
+</p>
+<h1>{{if .IsNew}}Новый подарок{{else}}Изменить подарок{{end}}</h1>
+<p class="profile-notice">Профиль: <strong>{{.Profile.Name}}</strong>
+</p>
+</header>
+{{if .Error}}<p class="form-error" id="form-error" role="alert">{{.Error}}</p>{{end}}
+{{if .HasGit}}<p class="note">Сохранённая здесь версия имеет приоритет над обновлениями из Git. К версии из Git можно вернуться отдельной кнопкой.</p>{{end}}
+<form class="editor" method="post" action="{{.Action}}" enctype="multipart/form-data" {{if .Error}}aria-describedby="form-error"{{end}}>
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<input type="hidden" name="profile" value="{{.Profile.Slug}}">
+<input type="hidden" name="revision" value="{{.Revision}}">
+<input type="hidden" name="snapshot" value="{{.Snapshot}}">
+<label>ID <span>Строчные латинские буквы, цифры и дефисы; после создания не меняется.</span>
+<input name="id" value="{{.Wish.ID}}" maxlength="64" pattern="[a-z0-9][a-z0-9-]{0,63}" required {{if not .IsNew}}readonly{{end}}>
+</label>
+<label>Название<input name="name" value="{{.Wish.Name}}" maxlength="200" required>
+</label>
+<label>Ссылка<input type="url" name="url" value="{{.Wish.URL}}" maxlength="2048" required placeholder="https://">
+</label>
+<label>Описание<textarea name="description" maxlength="4000" rows="4" required>{{.Wish.Description}}</textarea>
+</label>
+<label>Заметка<textarea name="note" maxlength="2000" rows="2">{{.Wish.Note}}</textarea>
+</label>
+<label>Категория<input name="category" value="{{.Wish.Category}}" maxlength="80" required>
+</label>
+{{if .Wish.Image}}<img class="editor-preview" src="/{{.Wish.Image}}" alt="Текущее изображение">{{end}}
+<label>Изображение из каталога<select name="image">
+<option value="{{.Wish.Image}}">Оставить текущее</option>{{range .Assets}}<option value="{{.}}">{{.}}</option>{{end}}</select>
+</label>
+<label>Или загрузить новое <span>JPEG, PNG или WebP, до 5 MiB. Файл сохранится после обновления из Git.</span>
+<input type="file" name="photo" accept="image/jpeg,image/png,image/webp">
+</label>
+<p class="profile-notice">Сохранить в вишлист: <strong>{{.Profile.Name}}</strong>
+</p>
+<button type="submit">Сохранить подарок</button>
+</form>
+{{if not .IsNew}}<div class="editor-actions">
+<form method="post" action="/admin/{{.Profile.Slug}}/wishes/{{.Wish.ID}}/hide">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<input type="hidden" name="profile" value="{{.Profile.Slug}}">
+<input type="hidden" name="revision" value="{{.Revision}}">
+<input type="hidden" name="snapshot" value="{{.Snapshot}}">
+<input type="hidden" name="hidden" value="{{if .Hidden}}false{{else}}true{{end}}">
+<button class="secondary" type="submit">{{if .Hidden}}Вернуть в список{{else}}Скрыть из списка{{end}}</button>
+<small>Существующая бронь сохранится.</small>
+</form>
+{{if and .HasGit .Revision}}<form method="post" action="/admin/{{.Profile.Slug}}/wishes/{{.Wish.ID}}/reset">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<input type="hidden" name="profile" value="{{.Profile.Slug}}">
+<input type="hidden" name="revision" value="{{.Revision}}">
+<input type="hidden" name="snapshot" value="{{.Snapshot}}">
+<button class="secondary" type="submit">Вернуть версию из Git</button>
+<small>Правки этой позиции из админки будут сняты.</small>
+</form>{{end}}</div>{{end}}</main>
+</body>
+</html>{{end}}

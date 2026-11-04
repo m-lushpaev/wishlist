@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Личный вишлист Максима.">
-  <title>Вишлист · Максим</title>
+  <meta name="description" content="Вишлист · {{.Profile.Name}}">
+  <title>Вишлист · {{.Profile.Name}}</title>
   <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/styles.css">
   <script src="/static/htmx.min.js" defer></script>
@@ -13,14 +13,15 @@
   <main>
     <header>
       <h1>wishlist_</h1>
-      <p>Максим. Вещи, которые хочу.</p>
+      <p>{{.Profile.Name}}. Вещи, которые хочу.</p>
+      <p><a href="/">← вишлисты семьи</a></p>
     </header>
 
     <nav class="filters" aria-label="Фильтры">
-      <a href="/?status=all" {{if eq .ActiveStatus "all"}}aria-current="page"{{end}}>все</a>
-      <a href="/?status=available" {{if eq .ActiveStatus "available"}}aria-current="page"{{end}}>свободные</a>
-      <a href="/?status=reserved" {{if eq .ActiveStatus "reserved"}}aria-current="page"{{end}}>занятые</a>
-      {{range .Categories}}<a href="/?category={{.}}" {{if eq $.ActiveCategory .}}aria-current="page"{{end}}>{{.}}</a>{{end}}
+      <a href="{{.ProfilePath}}?status=all" {{if eq .ActiveStatus "all"}}aria-current="page"{{end}}>все</a>
+      <a href="{{.ProfilePath}}?status=available" {{if eq .ActiveStatus "available"}}aria-current="page"{{end}}>свободные</a>
+      <a href="{{.ProfilePath}}?status=reserved" {{if eq .ActiveStatus "reserved"}}aria-current="page"{{end}}>занятые</a>
+      {{range .Categories}}<a href="{{$.ProfilePath}}?category={{.}}" {{if eq $.ActiveCategory .}}aria-current="page"{{end}}>{{.}}</a>{{end}}
     </nav>
 
     <ol class="wishes">
@@ -44,7 +45,7 @@
     {{else}}
       <details>
         <summary>Зарезервировать</summary>
-        <form method="post" action="/reserve/{{.Wish.ID}}" hx-post="/reserve/{{.Wish.ID}}" hx-target="closest .wish" hx-swap="outerHTML" hx-disabled-elt="find button">
+        <form method="post" action="/{{.Wish.Profile}}/reserve/{{.Wish.ID}}" hx-post="/{{.Wish.Profile}}/reserve/{{.Wish.ID}}" hx-target="closest .wish" hx-swap="outerHTML" hx-disabled-elt="find button">
           <input type="hidden" name="csrf" value="{{.CSRF}}">
           <label>Имя <span>(необязательно)</span><input name="name" maxlength="80" autocomplete="name"></label>
           <label>Комментарий <span>(необязательно)</span><textarea name="note" maxlength="400" rows="2"></textarea></label>

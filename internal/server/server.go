@@ -2,26 +2,25 @@ package server
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/subtle"
+	"database/sql"
 	"embed"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"html/template"
 	"io/fs"
 	"log/slog"
-	"net"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/m-lushpaev/wishlist/internal/catalog"
+	"github.com/m-lushpaev/wishlist/internal/profile"
 	"github.com/m-lushpaev/wishlist/internal/store"
 )
 
@@ -29,62 +28,54 @@ import (
 var webFiles embed.FS
 
 type Config struct {
-	ContentRoot string
-	PublicHost  string
-	AdminHost   string
+	ContentRoot, PublicHost, AdminHost string
+	FamilyDisabled                     bool
 }
 
 type Server struct {
-	config    Config
-	database  *store.DB
-	templates *template.Template
-	static    fs.FS
-	limiter   *rateLimiter
-	requests  atomic.Uint64
-	reserved  atomic.Uint64
-	cancelled atomic.Uint64
-	errors    atomic.Uint64
+	config                                Config
+	database                              *store.DB
+	templates                             *template.Template
+	static                                fs.FS
+	limiter                               *rateLimiter
+	requests, reserved, cancelled, errors atomic.Uint64
 }
 
 type wishView struct {
-	Wish        catalog.Wish
-	Reserved    bool
-	CSRF        string
-	CancelToken string
-	Error       string
+	Wish                     catalog.Wish
+	Reserved                 bool
+	CSRF, CancelToken, Error string
 }
 
 type homeView struct {
-	Wishes         []wishView
-	Categories     []string
-	ActiveCategory string
-	ActiveStatus   string
-	CSRF           string
+	Profile                            profile.Profile
+	ProfilePath                        string
+	Wishes                             []wishView
+	Categories                         []string
+	ActiveCategory, ActiveStatus, CSRF string
 }
 
 type reservationView struct {
-	Wish  catalog.Wish
-	Token string
-	CSRF  string
+	Wish                     catalog.Wish
+	Token, CSRF, ProfilePath string
 }
 
-type adminReservation struct {
-	WishName  string
-	WishID    string
-	CreatedAt time.Time
+type entry struct {
+	Wish           catalog.Wish
+	Hidden, HasGit bool
+	Revision       int64
 }
 
-type adminView struct {
-	User         string
-	TotalWishes  int
-	Available    int
-	Reservations []adminReservation
+type profileCatalog struct {
+	Snapshot catalog.Snapshot
+	Entries  []entry
 }
 
 func New(config Config, database *store.DB) (*Server, error) {
-	templates, err := template.New("").Funcs(template.FuncMap{
-		"date": func(value time.Time) string { return value.Local().Format("02.01.2006 15:04") },
-	}).ParseFS(webFiles, "templates/*.html")
+	if config.PublicHost == "" || config.AdminHost == "" || config.PublicHost == config.AdminHost {
+		return nil, errors.New("distinct public and admin hosts required")
+	}
+	templates, err := template.New("").Funcs(template.FuncMap{"date": func(t time.Time) string { return t.Local().Format("02.01.2006 15:04") }}).ParseFS(webFiles, "templates/*.html")
 	if err != nil {
 		return nil, err
 	}
@@ -92,434 +83,436 @@ func New(config Config, database *store.DB) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, err := catalog.Load(config.ContentRoot); err != nil {
+	if _, err = catalog.Load(config.ContentRoot); err != nil {
 		return nil, err
 	}
-	return &Server{
-		config: config, database: database, templates: templates, static: static,
-		limiter: newRateLimiter(8, 10*time.Minute),
-	}, nil
+	return &Server{config: config, database: database, templates: templates, static: static, limiter: newRateLimiter(8, 10*time.Minute)}, nil
 }
 
-func (server *Server) Handler() http.Handler {
+func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /", server.home)
-	mux.HandleFunc("POST /reserve/{id}", server.reserve)
-	mux.HandleFunc("GET /reservation/{token}", server.reservation)
-	mux.HandleFunc("POST /reservation/{token}/cancel", server.cancel)
-	mux.HandleFunc("GET /admin", server.admin)
-	mux.HandleFunc("GET /healthz", server.health)
-	mux.HandleFunc("GET /metrics", server.metrics)
-	mux.Handle("GET /static/", http.StripPrefix("/static/", cacheStatic(http.FileServer(http.FS(server.static)))))
-	mux.Handle("GET /assets/", http.StripPrefix("/assets/", cacheStatic(http.FileServer(http.Dir(server.config.ContentRoot+"/site/assets")))))
-	mux.HandleFunc("GET /styles.css", server.styles)
-	return server.logRequests(mux)
+	mux.HandleFunc("GET /{$}", s.home)
+	for _, p := range profile.All() {
+		slug := p.Slug
+		bind := func(h http.HandlerFunc) http.HandlerFunc {
+			return func(w http.ResponseWriter, r *http.Request) { r.SetPathValue("profile", slug); h(w, r) }
+		}
+		mux.HandleFunc("GET /"+slug, bind(s.profileHome))
+		mux.HandleFunc("GET /"+slug+"/{$}", bind(s.canonicalProfile))
+		mux.HandleFunc("POST /"+slug+"/reserve/{id}", bind(s.reserve))
+	}
+	mux.HandleFunc("POST /reserve/{id}", s.reserve)
+	mux.HandleFunc("GET /reservation/{token}", s.reservation)
+	mux.HandleFunc("POST /reservation/{token}/cancel", s.cancel)
+	mux.HandleFunc("GET /admin", s.admin)
+	mux.HandleFunc("GET /admin/{profile}", s.adminProfile)
+	mux.HandleFunc("GET /admin/{profile}/new", s.adminNew)
+	mux.HandleFunc("GET /admin/{profile}/wishes/{id}/edit", s.adminEdit)
+	mux.HandleFunc("POST /admin/{profile}/wishes", s.adminSave)
+	mux.HandleFunc("POST /admin/{profile}/wishes/{id}", s.adminSave)
+	mux.HandleFunc("POST /admin/{profile}/wishes/{id}/hide", s.adminHide)
+	mux.HandleFunc("POST /admin/{profile}/wishes/{id}/reset", s.adminReset)
+	mux.HandleFunc("GET /healthz", s.health)
+	mux.HandleFunc("GET /metrics", s.metrics)
+	mux.Handle("GET /static/", http.StripPrefix("/static/", cacheStatic(http.FileServer(http.FS(s.static)))))
+	mux.HandleFunc("GET /assets/{path...}", s.asset)
+	mux.HandleFunc("GET /media/{profile}/{digest}", s.media)
+	mux.HandleFunc("GET /styles.css", s.styles)
+	return s.logRequests(mux)
 }
 
-func (server *Server) home(response http.ResponseWriter, request *http.Request) {
-	if !server.requireHost(response, request, server.config.PublicHost) {
-		return
+func (s *Server) enabled(p string) bool {
+	_, ok := profile.Lookup(p)
+	return ok && (!s.config.FamilyDisabled || p == "maksim")
+}
+
+func (s *Server) profilePath(p string) string {
+	if s.config.FamilyDisabled && p == "maksim" {
+		return "/"
 	}
-	if request.URL.Path != "/" {
-		http.NotFound(response, request)
-		return
-	}
-	wishes, err := catalog.Load(server.config.ContentRoot)
+	return "/" + p
+}
+
+func (s *Server) effective(ctx context.Context, p string) (profileCatalog, error) {
+	snapshot, err := catalog.LoadSnapshot(s.config.ContentRoot)
 	if err != nil {
-		server.internalError(response, request, err)
-		return
+		return profileCatalog{}, err
 	}
-	reservations, err := server.database.List(request.Context())
+	overrides, err := s.database.ListOverrides(ctx, p)
 	if err != nil {
-		server.internalError(response, request, err)
+		return profileCatalog{}, err
+	}
+	result := profileCatalog{Snapshot: snapshot}
+	seen := map[string]bool{}
+	for _, w := range snapshot.Wishes {
+		if w.Profile != p {
+			continue
+		}
+		e := entry{Wish: w, HasGit: true}
+		if o, ok := overrides[w.ID]; ok {
+			e.Wish = o.Wish
+			e.Hidden = o.Hidden
+			e.Revision = o.Revision
+		}
+		result.Entries = append(result.Entries, e)
+		seen[w.ID] = true
+	}
+	ids := []string{}
+	for id := range overrides {
+		if !seen[id] {
+			ids = append(ids, id)
+		}
+	}
+	sort.Strings(ids)
+	for _, id := range ids {
+		o := overrides[id]
+		result.Entries = append(result.Entries, entry{Wish: o.Wish, Hidden: o.Hidden, Revision: o.Revision})
+	}
+	for _, e := range result.Entries {
+		if err = catalog.Validate(snapshot.Root, e.Wish, true); err != nil {
+			return profileCatalog{}, fmt.Errorf("invalid effective catalog: %w", err)
+		}
+	}
+	return result, nil
+}
+
+func (s *Server) home(w http.ResponseWriter, r *http.Request) {
+	if !s.requireHost(w, r, s.config.PublicHost) {
 		return
 	}
-	status := request.URL.Query().Get("status")
+	if s.config.FamilyDisabled {
+		s.listProfile(w, r, "maksim")
+		return
+	}
+	w.Header().Set("Cache-Control", "public, max-age=300")
+	s.execute(w, r, "landing.html", profile.All())
+}
+
+func (s *Server) profileHome(w http.ResponseWriter, r *http.Request) {
+	if !s.requireHost(w, r, s.config.PublicHost) {
+		return
+	}
+	p := r.PathValue("profile")
+	if !s.enabled(p) {
+		http.NotFound(w, r)
+		return
+	}
+	s.listProfile(w, r, p)
+}
+
+func (s *Server) canonicalProfile(w http.ResponseWriter, r *http.Request) {
+	if !s.requireHost(w, r, s.config.PublicHost) {
+		return
+	}
+	p := r.PathValue("profile")
+	if !s.enabled(p) {
+		http.NotFound(w, r)
+		return
+	}
+	target := s.profilePath(p)
+	if r.URL.RawQuery != "" {
+		target += "?" + r.URL.RawQuery
+	}
+	http.Redirect(w, r, target, http.StatusPermanentRedirect)
+}
+
+func (s *Server) listProfile(w http.ResponseWriter, r *http.Request, p string) {
+	data, err := s.effective(r.Context(), p)
+	if err != nil {
+		s.internalError(w, r, err)
+		return
+	}
+	reservations, err := s.database.List(r.Context(), p)
+	if err != nil {
+		s.internalError(w, r, err)
+		return
+	}
+	status := r.URL.Query().Get("status")
 	if status != "available" && status != "reserved" {
 		status = "all"
 	}
-	category := request.URL.Query().Get("category")
-	csrf := ensureCSRF(response, request)
-	view := homeView{ActiveCategory: category, ActiveStatus: status, CSRF: csrf}
-	categorySet := map[string]bool{}
-	for _, wish := range wishes {
-		categorySet[wish.Category] = true
-		_, isReserved := reservations[wish.ID]
+	category := r.URL.Query().Get("category")
+	csrf := ensureCSRF(w, r)
+	prof, _ := profile.Lookup(p)
+	view := homeView{Profile: prof, ProfilePath: s.profilePath(p), ActiveStatus: status, ActiveCategory: category, CSRF: csrf}
+	categories := map[string]bool{}
+	for _, e := range data.Entries {
+		if e.Hidden {
+			continue
+		}
+		wish := e.Wish
+		categories[wish.Category] = true
+		_, reserved := reservations[wish.ID]
 		if category != "" && wish.Category != category {
 			continue
 		}
-		if status == "available" && isReserved || status == "reserved" && !isReserved {
+		if status == "available" && reserved || status == "reserved" && !reserved {
 			continue
 		}
-		view.Wishes = append(view.Wishes, wishView{Wish: wish, Reserved: isReserved, CSRF: csrf})
+		view.Wishes = append(view.Wishes, wishView{Wish: wish, Reserved: reserved, CSRF: csrf})
 	}
-	for category := range categorySet {
-		view.Categories = append(view.Categories, category)
+	for c := range categories {
+		view.Categories = append(view.Categories, c)
 	}
 	sort.Strings(view.Categories)
-	response.Header().Set("Cache-Control", "no-store")
-	if request.Method == http.MethodHead {
-		response.WriteHeader(http.StatusOK)
-		return
-	}
-	server.execute(response, request, "home.html", view)
+	w.Header().Set("Cache-Control", "no-store")
+	s.execute(w, r, "home.html", view)
 }
 
-func (server *Server) reserve(response http.ResponseWriter, request *http.Request) {
-	if !server.requireHost(response, request, server.config.PublicHost) || !server.validPost(response, request) {
+func (s *Server) findWish(ctx context.Context, p, id string) (entry, bool, error) {
+	data, err := s.effective(ctx, p)
+	if err != nil {
+		return entry{}, false, err
+	}
+	for _, e := range data.Entries {
+		if e.Wish.ID == id {
+			return e, true, nil
+		}
+	}
+	return entry{}, false, nil
+}
+
+func (s *Server) validPost(w http.ResponseWriter, r *http.Request, host string, max int64) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, max)
+	origin, err := url.Parse(r.Header.Get("Origin"))
+	if err != nil || origin.Scheme != "https" || origin.Host != host || origin.User != nil || origin.Path != "" || origin.RawQuery != "" || origin.Fragment != "" {
+		http.Error(w, "Недопустимый источник формы", http.StatusForbidden)
+		return false
+	}
+	return true
+}
+
+func (s *Server) reserve(w http.ResponseWriter, r *http.Request) {
+	if !s.requireHost(w, r, s.config.PublicHost) {
 		return
 	}
-	if !server.limiter.Allow(clientIP(request)) {
-		http.Error(response, "Слишком много попыток. Попробуйте позже.", http.StatusTooManyRequests)
+	p := r.PathValue("profile")
+	if p == "" {
+		p = "maksim"
+	}
+	if !s.enabled(p) {
+		http.NotFound(w, r)
 		return
 	}
-	if err := request.ParseForm(); err != nil {
-		http.Error(response, "Некорректная форма", http.StatusBadRequest)
+	if !s.validPost(w, r, s.config.PublicHost, 8*1024) {
 		return
 	}
-	if !validCSRF(request) {
-		http.Error(response, "Форма устарела. Обновите страницу.", http.StatusForbidden)
+	if !s.limiter.Allow(clientIP(r)) {
+		http.Error(w, "Слишком много попыток. Попробуйте позже.", http.StatusTooManyRequests)
 		return
 	}
-	if request.Form.Get("website") != "" {
-		http.Error(response, "Некорректная форма", http.StatusBadRequest)
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Некорректная форма", http.StatusBadRequest)
 		return
 	}
-	name := strings.TrimSpace(request.Form.Get("name"))
-	note := strings.TrimSpace(request.Form.Get("note"))
+	if !validCSRF(r) {
+		http.Error(w, "Форма устарела. Обновите страницу.", http.StatusForbidden)
+		return
+	}
+	if r.Form.Get("website") != "" {
+		http.Error(w, "Некорректная форма", http.StatusBadRequest)
+		return
+	}
+	name, note := strings.TrimSpace(r.Form.Get("name")), strings.TrimSpace(r.Form.Get("note"))
 	if len([]rune(name)) > 80 || len([]rune(note)) > 400 {
-		http.Error(response, "Слишком длинное имя или комментарий", http.StatusBadRequest)
+		http.Error(w, "Слишком длинное имя или комментарий", http.StatusBadRequest)
 		return
 	}
-	wish, found, err := server.findWish(request.PathValue("id"))
+	e, found, err := s.findWish(r.Context(), p, r.PathValue("id"))
 	if err != nil {
-		server.internalError(response, request, err)
+		s.internalError(w, r, err)
 		return
 	}
-	if !found {
-		http.NotFound(response, request)
+	if !found || e.Hidden {
+		http.NotFound(w, r)
 		return
 	}
-	token, err := server.database.Reserve(request.Context(), wish.ID, name, note)
+	token, err := s.database.Reserve(r.Context(), p, e.Wish.ID, e.Wish.Name, name, note)
 	if errors.Is(err, store.ErrReserved) {
-		server.renderWish(response, request, wishView{Wish: wish, Reserved: true, CSRF: request.Form.Get("csrf"), Error: "Этот подарок уже зарезервирован."})
+		s.renderWish(w, r, wishView{Wish: e.Wish, Reserved: true, CSRF: r.Form.Get("csrf"), Error: "Этот подарок уже зарезервирован."})
 		return
 	}
 	if err != nil {
-		server.internalError(response, request, err)
+		s.internalError(w, r, err)
 		return
 	}
-	server.reserved.Add(1)
-	slog.Info("wish reserved", "wish_id", wish.ID, "client_ip", clientIP(request))
-	if request.Header.Get("HX-Request") == "true" {
-		server.renderWish(response, request, wishView{Wish: wish, Reserved: true, CSRF: request.Form.Get("csrf"), CancelToken: token})
+	s.reserved.Add(1)
+	slog.Info("wish reserved", "profile", p, "wish_id", e.Wish.ID, "client_ip", clientIP(r))
+	if r.Header.Get("HX-Request") == "true" {
+		s.renderWish(w, r, wishView{Wish: e.Wish, Reserved: true, CSRF: r.Form.Get("csrf"), CancelToken: token})
 		return
 	}
-	http.Redirect(response, request, "/reservation/"+token, http.StatusSeeOther)
+	http.Redirect(w, r, "/reservation/"+token, http.StatusSeeOther)
 }
 
-func (server *Server) reservation(response http.ResponseWriter, request *http.Request) {
-	if !server.requireHost(response, request, server.config.PublicHost) {
-		return
+func (s *Server) lookupReservation(w http.ResponseWriter, r *http.Request) (store.Reservation, bool) {
+	token := r.PathValue("token")
+	if !validRandomToken(token) {
+		http.NotFound(w, r)
+		return store.Reservation{}, false
 	}
-	token := request.PathValue("token")
-	reservation, err := server.database.FindByToken(request.Context(), token)
+	reservation, err := s.database.FindByToken(r.Context(), token)
+	if errors.Is(err, sql.ErrNoRows) {
+		http.NotFound(w, r)
+		return store.Reservation{}, false
+	}
 	if err != nil {
-		http.NotFound(response, request)
-		return
+		s.internalError(w, r, err)
+		return store.Reservation{}, false
 	}
-	wish, found, err := server.findWish(reservation.WishID)
-	if err != nil {
-		server.internalError(response, request, err)
-		return
-	}
-	if !found {
-		http.NotFound(response, request)
-		return
-	}
-	response.Header().Set("Cache-Control", "no-store")
-	server.execute(response, request, "reservation.html", reservationView{Wish: wish, Token: token, CSRF: ensureCSRF(response, request)})
+	return reservation, true
 }
 
-func (server *Server) cancel(response http.ResponseWriter, request *http.Request) {
-	if !server.requireHost(response, request, server.config.PublicHost) || !server.validPost(response, request) {
+func (s *Server) reservation(w http.ResponseWriter, r *http.Request) {
+	if !s.requireHost(w, r, s.config.PublicHost) {
 		return
 	}
-	if err := request.ParseForm(); err != nil || !validCSRF(request) {
-		http.Error(response, "Форма устарела. Обновите страницу.", http.StatusForbidden)
+	reservation, ok := s.lookupReservation(w, r)
+	if !ok {
 		return
 	}
-	removed, err := server.database.Cancel(request.Context(), request.PathValue("token"))
+	wish := catalog.Wish{Profile: reservation.Profile, ID: reservation.WishID, Name: reservation.WishName}
+	e, found, err := s.findWish(r.Context(), reservation.Profile, reservation.WishID)
 	if err != nil {
-		server.internalError(response, request, err)
+		s.internalError(w, r, err)
+		return
+	}
+	if found {
+		wish = e.Wish
+	}
+	if wish.Name == "" {
+		wish.Name = "Подарок " + wish.ID
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	s.execute(w, r, "reservation.html", reservationView{Wish: wish, Token: r.PathValue("token"), CSRF: ensureCSRF(w, r), ProfilePath: s.profilePath(reservation.Profile)})
+}
+
+func (s *Server) cancel(w http.ResponseWriter, r *http.Request) {
+	if !s.requireHost(w, r, s.config.PublicHost) || !s.validPost(w, r, s.config.PublicHost, 8*1024) {
+		return
+	}
+	if err := r.ParseForm(); err != nil || !validCSRF(r) {
+		http.Error(w, "Форма устарела. Обновите страницу.", http.StatusForbidden)
+		return
+	}
+	reservation, ok := s.lookupReservation(w, r)
+	if !ok {
+		return
+	}
+	removed, err := s.database.Cancel(r.Context(), r.PathValue("token"))
+	if err != nil {
+		s.internalError(w, r, err)
 		return
 	}
 	if !removed {
-		http.NotFound(response, request)
+		http.NotFound(w, r)
 		return
 	}
-	server.cancelled.Add(1)
-	slog.Info("reservation cancelled", "client_ip", clientIP(request))
-	http.Redirect(response, request, "/", http.StatusSeeOther)
+	s.cancelled.Add(1)
+	slog.Info("reservation cancelled", "profile", reservation.Profile, "client_ip", clientIP(r))
+	target := s.profilePath(reservation.Profile)
+	if !s.enabled(reservation.Profile) {
+		target = "/"
+	}
+	http.Redirect(w, r, target, http.StatusSeeOther)
 }
 
-func (server *Server) admin(response http.ResponseWriter, request *http.Request) {
-	if !server.requireHost(response, request, server.config.AdminHost) {
+func (s *Server) health(w http.ResponseWriter, r *http.Request) {
+	if !localHost(r.Host) {
+		http.NotFound(w, r)
 		return
 	}
-	if !hasGroup(request.Header.Get("Remote-Groups"), "admins") {
-		http.Error(response, "Forbidden", http.StatusForbidden)
-		return
-	}
-	wishes, err := catalog.Load(server.config.ContentRoot)
-	if err != nil {
-		server.internalError(response, request, err)
-		return
-	}
-	reservations, err := server.database.List(request.Context())
-	if err != nil {
-		server.internalError(response, request, err)
-		return
-	}
-	names := map[string]string{}
-	for _, wish := range wishes {
-		names[wish.ID] = wish.Name
-	}
-	view := adminView{User: request.Header.Get("Remote-User"), TotalWishes: len(wishes), Available: len(wishes) - len(reservations)}
-	for _, reservation := range reservations {
-		view.Reservations = append(view.Reservations, adminReservation{WishName: names[reservation.WishID], WishID: reservation.WishID, CreatedAt: reservation.CreatedAt})
-	}
-	response.Header().Set("Cache-Control", "no-store")
-	server.execute(response, request, "admin.html", view)
-}
-
-func (server *Server) health(response http.ResponseWriter, request *http.Request) {
-	if !localHost(request.Host) {
-		http.NotFound(response, request)
-		return
-	}
-	ctx, cancel := contextWithTimeout(request, 2*time.Second)
+	ctx, cancel := contextWithTimeout(r, 2*time.Second)
 	defer cancel()
-	if err := server.database.Ping(ctx); err != nil {
-		http.Error(response, "database unavailable", http.StatusServiceUnavailable)
+	if err := s.database.Ping(ctx); err != nil {
+		http.Error(w, "database unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	if _, err := catalog.Load(server.config.ContentRoot); err != nil {
-		http.Error(response, "catalog unavailable", http.StatusServiceUnavailable)
+	if _, err := catalog.Load(s.config.ContentRoot); err != nil {
+		http.Error(w, "catalog unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	response.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(response).Encode(map[string]string{"status": "ok"})
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
-func (server *Server) metrics(response http.ResponseWriter, request *http.Request) {
-	if !localHost(request.Host) {
-		http.NotFound(response, request)
+func (s *Server) metrics(w http.ResponseWriter, r *http.Request) {
+	if !localHost(r.Host) {
+		http.NotFound(w, r)
 		return
 	}
-	reservations, err := server.database.List(request.Context())
+	count, err := s.database.Count(r.Context())
 	if err != nil {
-		server.internalError(response, request, err)
+		s.internalError(w, r, err)
 		return
 	}
-	response.Header().Set("Content-Type", "text/plain; version=0.0.4")
-	fmt.Fprintf(response, "wishlist_http_requests_total %d\n", server.requests.Load())
-	fmt.Fprintf(response, "wishlist_reservations_created_total %d\n", server.reserved.Load())
-	fmt.Fprintf(response, "wishlist_reservations_cancelled_total %d\n", server.cancelled.Load())
-	fmt.Fprintf(response, "wishlist_http_errors_total %d\n", server.errors.Load())
-	fmt.Fprintf(response, "wishlist_reservations_active %d\n", len(reservations))
+	w.Header().Set("Content-Type", "text/plain; version=0.0.4")
+	fmt.Fprintf(w, "wishlist_http_requests_total %d\nwishlist_reservations_created_total %d\nwishlist_reservations_cancelled_total %d\nwishlist_http_errors_total %d\nwishlist_reservations_active %d\n", s.requests.Load(), s.reserved.Load(), s.cancelled.Load(), s.errors.Load(), count)
 }
 
-func (server *Server) styles(response http.ResponseWriter, request *http.Request) {
-	host := hostOnly(request.Host)
-	if host != server.config.PublicHost && host != server.config.AdminHost {
-		http.NotFound(response, request)
+func (s *Server) styles(w http.ResponseWriter, r *http.Request) {
+	if hostOnly(r.Host) != s.config.PublicHost && hostOnly(r.Host) != s.config.AdminHost {
+		http.NotFound(w, r)
 		return
 	}
-	response.Header().Set("Content-Type", "text/css; charset=utf-8")
-	response.Header().Set("Cache-Control", "public, max-age=300")
-	http.ServeFile(response, request, server.config.ContentRoot+"/site/styles.css")
+	w.Header().Set("Content-Type", "text/css; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=300")
+	http.ServeFile(w, r, s.config.ContentRoot+"/site/styles.css")
 }
 
-func (server *Server) findWish(id string) (catalog.Wish, bool, error) {
-	wishes, err := catalog.Load(server.config.ContentRoot)
+func (s *Server) asset(w http.ResponseWriter, r *http.Request) {
+	if hostOnly(r.Host) != s.config.PublicHost && hostOnly(r.Host) != s.config.AdminHost {
+		http.NotFound(w, r)
+		return
+	}
+	if r.PathValue("path") == "placeholder.svg" {
+		body, err := webFiles.ReadFile("static/placeholder.svg")
+		if err != nil {
+			s.internalError(w, r, err)
+			return
+		}
+		w.Header().Set("Content-Type", "image/svg+xml")
+		w.Header().Set("Cache-Control", "public, max-age=3600")
+		w.Write(body)
+		return
+	}
+	root, err := filepath.EvalSymlinks(s.config.ContentRoot)
 	if err != nil {
-		return catalog.Wish{}, false, err
+		http.NotFound(w, r)
+		return
 	}
-	for _, wish := range wishes {
-		if wish.ID == id {
-			return wish, true, nil
-		}
+	base, err := filepath.Abs(filepath.Join(root, "site", "assets"))
+	if err != nil {
+		http.NotFound(w, r)
+		return
 	}
-	return catalog.Wish{}, false, nil
-}
-
-func (server *Server) renderWish(response http.ResponseWriter, request *http.Request, view wishView) {
-	response.Header().Set("Cache-Control", "no-store")
-	server.execute(response, request, "wish", view)
-}
-
-func (server *Server) execute(response http.ResponseWriter, request *http.Request, name string, data any) {
-	response.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := server.templates.ExecuteTemplate(response, name, data); err != nil {
-		slog.Error("render failed", "template", name, "error", err, "path", request.URL.Path)
+	target, err := filepath.EvalSymlinks(filepath.Join(base, r.PathValue("path")))
+	if err != nil {
+		http.NotFound(w, r)
+		return
 	}
-}
-
-func (server *Server) validPost(response http.ResponseWriter, request *http.Request) bool {
-	request.Body = http.MaxBytesReader(response, request.Body, 8*1024)
-	origin := request.Header.Get("Origin")
-	if origin == "" {
-		http.Error(response, "Missing Origin", http.StatusForbidden)
-		return false
+	rel, err := filepath.Rel(base, target)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		http.NotFound(w, r)
+		return
 	}
-	parsed, err := url.Parse(origin)
-	if err != nil || parsed.Scheme != "https" || parsed.Hostname() != server.config.PublicHost {
-		http.Error(response, "Invalid Origin", http.StatusForbidden)
-		return false
+	info, err := os.Stat(target)
+	if err != nil || !info.Mode().IsRegular() {
+		http.NotFound(w, r)
+		return
 	}
-	return true
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	http.ServeFile(w, r, target)
 }
 
-func (server *Server) requireHost(response http.ResponseWriter, request *http.Request, expected string) bool {
-	if hostOnly(request.Host) != expected {
-		http.NotFound(response, request)
-		return false
+func (s *Server) renderWish(w http.ResponseWriter, r *http.Request, view wishView) {
+	w.Header().Set("Cache-Control", "no-store")
+	s.execute(w, r, "wish", view)
+}
+
+func (s *Server) execute(w http.ResponseWriter, r *http.Request, name string, data any) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := s.templates.ExecuteTemplate(w, name, data); err != nil {
+		slog.Error("render failed", "template", name, "error", err, "path", safeLogPath(r))
 	}
-	return true
-}
-
-func (server *Server) internalError(response http.ResponseWriter, request *http.Request, err error) {
-	server.errors.Add(1)
-	slog.Error("request failed", "method", request.Method, "path", request.URL.Path, "error", err)
-	http.Error(response, "Временная ошибка сервера", http.StatusInternalServerError)
-}
-
-func (server *Server) logRequests(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
-		started := time.Now()
-		server.requests.Add(1)
-		wrapped := &statusWriter{ResponseWriter: response, status: http.StatusOK}
-		next.ServeHTTP(wrapped, request)
-		slog.Info("http request", "method", request.Method, "path", request.URL.Path, "status", wrapped.status,
-			"duration_ms", time.Since(started).Milliseconds(), "client_ip", clientIP(request))
-	})
-}
-
-type statusWriter struct {
-	http.ResponseWriter
-	status int
-}
-
-func (writer *statusWriter) WriteHeader(status int) {
-	writer.status = status
-	writer.ResponseWriter.WriteHeader(status)
-}
-
-func cacheStatic(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
-		response.Header().Set("Cache-Control", "public, max-age=3600")
-		next.ServeHTTP(response, request)
-	})
-}
-
-func ensureCSRF(response http.ResponseWriter, request *http.Request) string {
-	if cookie, err := request.Cookie("wishlist_csrf"); err == nil && validRandomToken(cookie.Value) {
-		return cookie.Value
-	}
-	bytes := make([]byte, 24)
-	if _, err := rand.Read(bytes); err != nil {
-		panic(err)
-	}
-	token := base64.RawURLEncoding.EncodeToString(bytes)
-	http.SetCookie(response, &http.Cookie{Name: "wishlist_csrf", Value: token, Path: "/", MaxAge: 86400,
-		HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode})
-	return token
-}
-
-func validCSRF(request *http.Request) bool {
-	cookie, err := request.Cookie("wishlist_csrf")
-	if err != nil || !validRandomToken(cookie.Value) {
-		return false
-	}
-	form := request.Form.Get("csrf")
-	return len(cookie.Value) == len(form) && subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(form)) == 1
-}
-
-func validRandomToken(token string) bool {
-	decoded, err := base64.RawURLEncoding.DecodeString(token)
-	return err == nil && len(decoded) >= 24 && len(decoded) <= 64
-}
-
-func clientIP(request *http.Request) string {
-	if ip := net.ParseIP(strings.TrimSpace(request.Header.Get("CF-Connecting-IP"))); ip != nil {
-		return ip.String()
-	}
-	host, _, err := net.SplitHostPort(request.RemoteAddr)
-	if err == nil {
-		return host
-	}
-	return request.RemoteAddr
-}
-
-func hostOnly(host string) string {
-	if name, _, err := net.SplitHostPort(host); err == nil {
-		return name
-	}
-	return strings.TrimSuffix(host, ".")
-}
-
-func localHost(host string) bool {
-	host = hostOnly(host)
-	return host == "127.0.0.1" || host == "localhost" || host == "::1"
-}
-
-func hasGroup(groups, expected string) bool {
-	for _, group := range strings.FieldsFunc(groups, func(r rune) bool { return r == ',' || r == ';' || r == ' ' }) {
-		if group == expected {
-			return true
-		}
-	}
-	return false
-}
-
-func contextWithTimeout(request *http.Request, timeout time.Duration) (context.Context, context.CancelFunc) {
-	return context.WithTimeout(request.Context(), timeout)
-}
-
-type rateLimiter struct {
-	mu      sync.Mutex
-	limit   int
-	window  time.Duration
-	entries map[string][]time.Time
-}
-
-func newRateLimiter(limit int, window time.Duration) *rateLimiter {
-	return &rateLimiter{limit: limit, window: window, entries: map[string][]time.Time{}}
-}
-
-func (limiter *rateLimiter) Allow(key string) bool {
-	limiter.mu.Lock()
-	defer limiter.mu.Unlock()
-	now := time.Now()
-	cutoff := now.Add(-limiter.window)
-	times := limiter.entries[key][:0]
-	for _, timestamp := range limiter.entries[key] {
-		if timestamp.After(cutoff) {
-			times = append(times, timestamp)
-		}
-	}
-	if len(times) >= limiter.limit {
-		limiter.entries[key] = times
-		return false
-	}
-	limiter.entries[key] = append(times, now)
-	if len(limiter.entries) > 4096 {
-		for entry, timestamps := range limiter.entries {
-			if len(timestamps) == 0 || timestamps[len(timestamps)-1].Before(cutoff) {
-				delete(limiter.entries, entry)
-			}
-		}
-	}
-	return true
 }

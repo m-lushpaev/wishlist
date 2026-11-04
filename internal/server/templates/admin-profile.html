@@ -1,0 +1,51 @@
+{{define "admin-profile.html"}}<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Управление · {{.Profile.Name}}</title>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<main>
+<header>
+<p class="eyebrow">управление · {{.User}}</p>
+<p>
+<a href="/admin">← выбрать профиль</a>
+</p>
+<h1>{{.Profile.Name}}</h1>
+<p>
+<a class="button-link" href="/admin/{{.Profile.Slug}}/new">Добавить подарок</a>
+</p>
+</header>
+<dl class="stats">
+<div>
+<dt>в списке</dt>
+<dd>{{.TotalWishes}}</dd>
+</div>
+<div>
+<dt>свободно</dt>
+<dd>{{.Available}}</dd>
+</div>
+<div>
+<dt>резервов</dt>
+<dd>{{len .Reservations}}</dd>
+</div>
+</dl>
+<h2>Подарки</h2>
+<ol class="wishes">{{range .Entries}}<li class="admin-wish">
+<div>
+<strong>{{.Wish.Name}}</strong>
+<p class="note">{{if .HasGit}}Git{{else}}из админки{{end}}{{if .Revision}} · изменено в админке{{end}}{{if .Hidden}} · скрыто{{end}}</p>
+</div>
+<a href="/admin/{{$.Profile.Slug}}/wishes/{{.Wish.ID}}/edit">Изменить</a>
+</li>{{else}}<li class="empty">В этом вишлисте пока ничего нет. Добавьте первый подарок.</li>{{end}}</ol>
+<h2 class="section-title">Резервации</h2>
+<ol class="admin-list">{{range .Reservations}}<li>
+<strong>{{.WishName}}</strong>
+<time datetime="{{.CreatedAt}}">{{date .CreatedAt}}</time>
+</li>{{else}}<li>Пока пусто.</li>{{end}}</ol>
+</main>
+</body>
+</html>{{end}}

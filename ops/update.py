@@ -2,6 +2,7 @@
 """Deploy only static files from a public Git repository, atomically."""
 import io
 import os
+import fcntl
 from pathlib import Path
 import shutil
 import subprocess
@@ -11,6 +12,7 @@ import tempfile
 ROOT = Path('/srv/wishlist')
 REPO = Path('/var/lib/wishlist/repo.git')
 URL = 'https://github.com/m-lushpaev/wishlist.git'
+BINARY = Path('/usr/local/bin/wishlist')
 
 def git(*args):
     return subprocess.run(['git', '--git-dir', str(REPO), *args], check=True,
@@ -51,9 +53,18 @@ def deploy():
                 assert not path.is_absolute() and '..' not in path.parts, 'Invalid archive path'
                 assert member.isfile() or member.isdir(), 'Links and special files are forbidden'
                 assert member.size <= 5 * 1024 * 1024, 'File exceeds 5 MiB'
-            tar.extractall(staging, filter='data')
+            for member in tar.getmembers():
+                target = staging / member.name
+                if member.isdir():
+                    target.mkdir(parents=True, exist_ok=True)
+                else:
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    with tar.extractfile(member) as source, target.open('xb') as output:
+                        shutil.copyfileobj(source, output)
         for name in ('data/wishes.ini', 'site/styles.css'):
             assert (staging/name).is_file(), 'Missing required site file: '+name
+        subprocess.run([str(BINARY), 'check-content', str(staging)], check=True,
+                       capture_output=True, timeout=20)
         for file in staging.rglob('*'):
             file.chmod(0o755 if file.is_dir() else 0o644)
         staging.chmod(0o755)
@@ -78,8 +89,9 @@ def deploy():
 if __name__ == '__main__':
     os.umask(0o022)
     try:
-        deploy()
+        with (ROOT / '.update.lock').open('a') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            deploy()
     except (AssertionError, OSError, ValueError, subprocess.SubprocessError) as error:
-        # Never emit raw git output or remote file contents.
         print('Wishlist deploy failed: ' + type(error).__name__)
         raise SystemExit(1)

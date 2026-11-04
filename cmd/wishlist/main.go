@@ -3,6 +3,10 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strconv"
+
+	"github.com/m-lushpaev/wishlist/internal/catalog"
 	"log/slog"
 	"net/http"
 	"os"
@@ -17,12 +21,61 @@ import (
 var version = "dev"
 
 func main() {
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "check-content":
+			root := env("WISHLIST_CONTENT_ROOT", ".")
+			if len(os.Args) == 3 {
+				root = os.Args[2]
+			} else if len(os.Args) != 2 {
+				fmt.Fprintln(os.Stderr, "usage: wishlist check-content [root]")
+				os.Exit(2)
+			}
+			wishes, err := catalog.Load(root)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "invalid catalog:", err)
+				os.Exit(1)
+			}
+			fmt.Printf("catalog valid: %d wishes\n", len(wishes))
+			return
+		case "migrate-db":
+			path := env("WISHLIST_DB", "wishlist.db")
+			if len(os.Args) == 3 {
+				path = os.Args[2]
+			} else if len(os.Args) != 2 {
+				fmt.Fprintln(os.Stderr, "usage: wishlist migrate-db [path]")
+				os.Exit(2)
+			}
+			db, err := store.Migrate(path)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "migration failed:", err)
+				os.Exit(1)
+			}
+			count, err := db.Count(context.Background())
+			db.Close()
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "migration verification failed")
+				os.Exit(1)
+			}
+			fmt.Printf("schema=1 reservations=%d integrity=ok\n", count)
+			return
+		default:
+			fmt.Fprintln(os.Stderr, "unknown command")
+			os.Exit(2)
+		}
+	}
+	family, err := strconv.ParseBool(env("WISHLIST_FAMILY_ENABLED", "true"))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "invalid WISHLIST_FAMILY_ENABLED")
+		os.Exit(2)
+	}
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
 	config := appserver.Config{
-		ContentRoot: env("WISHLIST_CONTENT_ROOT", "."),
-		PublicHost:  env("WISHLIST_PUBLIC_HOST", "wish.lushpaev.ru"),
-		AdminHost:   env("WISHLIST_ADMIN_HOST", "wish-admin.lushpaev.ru"),
+		FamilyDisabled: !family,
+		ContentRoot:    env("WISHLIST_CONTENT_ROOT", "."),
+		PublicHost:     env("WISHLIST_PUBLIC_HOST", "wish.lushpaev.ru"),
+		AdminHost:      env("WISHLIST_ADMIN_HOST", "wish-admin.lushpaev.ru"),
 	}
 	database, err := store.Open(env("WISHLIST_DB", "wishlist.db"))
 	if err != nil {
