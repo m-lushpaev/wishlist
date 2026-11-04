@@ -53,3 +53,37 @@ func mustWrite(t *testing.T, path, content string) {
 		t.Fatal(err)
 	}
 }
+
+func TestProfilesAndLegacy(t *testing.T) {
+	root := t.TempDir()
+	mustWrite(t, filepath.Join(root, "site", "assets", "x.jpg"), "photo")
+	wish := "[wish]\nid=x\nname=X\nurl=https://example.com/x\ndescription=X\nimage=assets/x.jpg\ncategory=gear\n"
+	path := filepath.Join(root, "data", "wishes.ini")
+	mustWrite(t, path, wish+wish+"profile=anya\n")
+	wishes, err := Load(root)
+	if err != nil || len(wishes) != 2 || wishes[0].Profile != "maksim" || wishes[1].Profile != "anya" {
+		t.Fatalf("profiles=%#v %v", wishes, err)
+	}
+	for _, data := range []string{wish + wish, wish + "profile=unknown\n", wish + "profile=../anya\n"} {
+		mustWrite(t, path, data)
+		if _, e := Load(root); e == nil {
+			t.Fatal("invalid catalog accepted")
+		}
+	}
+}
+
+func TestRejectImageSymlinkEscape(t *testing.T) {
+	root := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "secret.jpg")
+	mustWrite(t, outside, "secret")
+	if err := os.MkdirAll(filepath.Join(root, "site", "assets"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "site", "assets", "x.jpg")); err != nil {
+		t.Fatal(err)
+	}
+	mustWrite(t, filepath.Join(root, "data", "wishes.ini"), "[wish]\nid=x\nname=X\nurl=https://example.com\ndescription=X\nimage=assets/x.jpg\ncategory=gear\n")
+	if _, err := Load(root); err == nil {
+		t.Fatal("symlink escape accepted")
+	}
+}

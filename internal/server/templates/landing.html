@@ -1,0 +1,26 @@
+{{define "landing.html"}}<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Вишлисты семьи Лушпаевых. Выберите, кому хотите сделать подарок.">
+<title>Вишлисты семьи Лушпаевых</title>
+<link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<main class="portal">
+<header>
+<p class="eyebrow">семья Лушпаевых</p>
+<h1>Подарки<br>с попаданием.</h1>
+<p class="intro">Здесь живут наши вишлисты. Выберите, кого хотите порадовать.</p>
+</header>
+<nav class="profiles" aria-label="Вишлисты семьи">{{range .}}<a class="profile-card" href="/{{.Slug}}">
+<span class="eyebrow">вишлист</span>
+<span class="profile-name">{{.Name}}</span>
+<span class="profile-arrow" aria-hidden="true">↗</span>
+</a>{{end}}</nav>
+<footer>Идеи для больших и маленьких поводов.</footer>
+</main>
+</body>
+</html>{{end}}

@@ -15,6 +15,7 @@ linux-amd64:
 check:
 	$(GO) test -race ./...
 	$(GO) vet ./...
+	python3 -m unittest discover -s ops -p 'test_*.py'
 
 clean:
 	rm -rf dist

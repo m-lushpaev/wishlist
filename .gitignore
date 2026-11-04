@@ -7,3 +7,5 @@ kit-nftables.nft
 /site/index.html.tmp
 /dist/
 wishlist.db*
+
+.swe-helper/

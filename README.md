@@ -1,28 +1,85 @@
-# Wishlist
+# Семейный Wishlist
 
-Me want things. Me put things here.
+Вишлисты семьи Лушпаевых: [wish.lushpaev.ru](https://wish.lushpaev.ru/).
 
-[See list](https://wish.lushpaev.ru/).
+Go, серверный HTML и SQLite. Главная страница ведёт к `/maksim`, `/anya`,
+`/grisha`, `/arisha`. Гости могут резервировать подарок и получают секретную
+ссылку отмены. Имя и комментарий бронирующего публично не показываются.
 
-Go serve page. SQLite remember reservations. Little HTMX. No trackers.
+## Через Git
 
-Friend reserve gift. Friend get secret undo link. Public page show no friend name.
+Редактируйте `data/wishes.ini`, по одному блоку `[wish]` на подарок:
 
-## Change things
-
-Edit [data/wishes.ini](data/wishes.ini). One `[wish]` block, one thing.
-Add stable id, name, link, description, photo, category. Note can be empty.
-Put photos in `site/assets/`. Save to main. Robot check code. Server pull words and photos.
-
-Change look: [site/styles.css](site/styles.css).
-Change page: [internal/server/templates](internal/server/templates/).
-
-## Build here
-
-Need Go and make.
-
-```sh
-make
+```ini
+[wish]
+profile=anya
+id=book
+name=Книга
+url=https://example.com/book
+description=Книга, которую хочется прочитать.
+note=
+image=assets/book.jpg
+category=книги
 ```
 
-Run `dist/wishlist`. Done.
+`profile`: `maksim`, `anya`, `grisha`, `arisha`. Без поля профиль — `maksim`,
+поэтому прежний каталог сохраняется. ID стабилен внутри профиля; одинаковые
+ID у разных людей допустимы. Не меняйте ID или профиль зарезервированной
+позиции. Изображение должно существовать в `site/assets/`.
+
+Проверка перед отправкой: `make check` и `go run ./cmd/wishlist check-content .`.
+Kit каждую минуту получает из `main` только каталог, CSS и изображения,
+проверяет их установленным бинарником и атомарно переключает выпуск.
+Go-код и встроенные HTML-шаблоны выпускаются отдельно.
+
+## Через админку
+
+[Панель управления](https://wish-admin.lushpaev.ru/) доступна через WG и
+Authelia. Выберите профиль, затем добавьте или измените подарок. Загруженные
+JPEG/PNG/WebP до 5 MiB и административные изменения хранятся в SQLite и
+сохраняются после обновления из Git. При редактировании копия выбранной
+Git-картинки также сохраняется в БД.
+
+Изменение через панель имеет приоритет над Git. Кнопка «Вернуть версию из Git»
+снимает это изменение; скрытие подарка сохраняет его данные и существующую
+бронь. Устаревшая форма выдаёт конфликт и не перезаписывает более свежую правку.
+Содержимое из админки автоматически в публичный Git не отправляется.
+
+`admins` управляет всеми профилями. Группы `wishlist-maksim`, `wishlist-anya`,
+`wishlist-grisha`, `wishlist-arisha` разрешают редактирование только своего
+профиля. Сервер проверяет права на каждом запросе. Членство назначается в
+Authelia; само приложение не создаёт аккаунты и не меняет их группы.
+
+## Сборка и миграция
+
+Нужны Go 1.27 и Python 3.9+ для эксплуатационных тестов.
+
+```sh
+make check
+make
+make linux-amd64
+./dist/wishlist check-content .
+```
+
+Приложение по умолчанию слушает `127.0.0.1:10087`; хосты, путь к контенту
+и SQLite задаются переменными `WISHLIST_*` из `ops/wishlist.service`.
+Старая SQLite не мигрирует при обычном запуске. После согласованной копии БД
+и остановки старой службы выполните:
+
+```sh
+./dist/wishlist migrate-db /path/to/wishlist.db
+```
+
+Все старые резервы относятся к `maksim`; их ID, хеши отмены, имена, заметки и
+время сохраняются. Старые `/reservation/{token}` и `/reserve/{id}` работают.
+Миграция транзакционна, проверяет значения и безопасно повторяется.
+
+Для отката интерфейса задайте `WISHLIST_FAMILY_ENABLED=false` новому бинарнику:
+корень снова покажет Максима, остальные страницы будут скрыты, семейные данные
+сохранятся. Старый бинарник с новой схемой не совместим. Не восстанавливайте
+старую БД поверх новых резервов или правок админки.
+
+Не публикуйте SQLite, резервные копии и секретные ссылки отмены. Backend должен
+оставаться loopback-only, а админка — за очищающим identity headers ForwardAuth
+и частным listener. Эксплуатационная инструкция: `OPERATIONS.md` на управляющей
+машине (не публикуется в репозиторий).

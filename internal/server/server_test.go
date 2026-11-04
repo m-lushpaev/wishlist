@@ -18,7 +18,7 @@ func TestReserveConflictAndCancel(t *testing.T) {
 	handler, cleanup := testHandler(t)
 	defer cleanup()
 
-	home := request(t, handler, http.MethodGet, "/", nil, "wish.test", nil)
+	home := request(t, handler, http.MethodGet, "/maksim", nil, "wish.test", nil)
 	if home.Code != http.StatusOK || !strings.Contains(home.Body.String(), "Test Wish") {
 		t.Fatalf("home: status=%d body=%s", home.Code, home.Body.String())
 	}
@@ -40,7 +40,7 @@ func TestReserveConflictAndCancel(t *testing.T) {
 	}
 
 	cancelled := request(t, handler, http.MethodPost, "/reservation/"+tokenMatch[1]+"/cancel", strings.NewReader(form.Encode()), "wish.test", headers, cookie)
-	if cancelled.Code != http.StatusSeeOther || cancelled.Header().Get("Location") != "/" {
+	if cancelled.Code != http.StatusSeeOther || cancelled.Header().Get("Location") != "/maksim" {
 		t.Fatalf("cancel: status=%d location=%q", cancelled.Code, cancelled.Header().Get("Location"))
 	}
 }
@@ -53,7 +53,7 @@ func TestAdminRequiresGroupAndHost(t *testing.T) {
 		t.Fatalf("without group: %d", forbidden.Code)
 	}
 	allowed := request(t, handler, http.MethodGet, "/admin", nil, "wish-admin.test", map[string]string{"Remote-User": "maks", "Remote-Groups": "users,admins"})
-	if allowed.Code != http.StatusOK || !strings.Contains(allowed.Body.String(), "Состояние wishlist") {
+	if allowed.Code != http.StatusOK || !strings.Contains(allowed.Body.String(), "Семейные вишлисты") {
 		t.Fatalf("admin: status=%d body=%s", allowed.Code, allowed.Body.String())
 	}
 	public := request(t, handler, http.MethodGet, "/admin", nil, "wish.test", map[string]string{"Remote-Groups": "admins"})
@@ -67,6 +67,7 @@ func testHandler(t *testing.T) (http.Handler, func()) {
 	root := t.TempDir()
 	writeTestFile(t, filepath.Join(root, "site", "assets", "test.jpg"), "photo")
 	writeTestFile(t, filepath.Join(root, "site", "styles.css"), "body{}")
+	writeTestFile(t, filepath.Join(root, "site", "assets", "placeholder.svg"), "<svg/>")
 	writeTestFile(t, filepath.Join(root, "data", "wishes.ini"), `[wish]
 id=test-wish
 name=Test Wish
@@ -92,6 +93,7 @@ func request(t *testing.T, handler http.Handler, method, target string, body io.
 	t.Helper()
 	request := httptest.NewRequest(method, target, body)
 	request.Host = host
+	request.RemoteAddr = "127.0.0.1:12345"
 	for name, value := range headers {
 		request.Header.Set(name, value)
 	}

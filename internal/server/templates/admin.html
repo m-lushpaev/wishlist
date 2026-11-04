@@ -1,25 +1,23 @@
 {{define "admin.html"}}<!doctype html>
 <html lang="ru">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="robots" content="noindex,nofollow">
-  <title>Wishlist admin</title>
-  <link rel="stylesheet" href="/styles.css">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Вишлисты · управление</title>
+<link rel="stylesheet" href="/styles.css">
 </head>
 <body>
-  <main class="narrow">
-    <p class="eyebrow">admin_ · {{.User}}</p>
-    <h1>Состояние wishlist</h1>
-    <dl class="stats">
-      <div><dt>всего</dt><dd>{{.TotalWishes}}</dd></div>
-      <div><dt>свободно</dt><dd>{{.Available}}</dd></div>
-      <div><dt>зарезервировано</dt><dd>{{len .Reservations}}</dd></div>
-    </dl>
-    <h2>Резервации</h2>
-    <ol class="admin-list">
-      {{range .Reservations}}<li><strong>{{if .WishName}}{{.WishName}}{{else}}{{.WishID}}{{end}}</strong><time datetime="{{.CreatedAt}}">{{date .CreatedAt}}</time></li>{{else}}<li>Пока пусто.</li>{{end}}
-    </ol>
-  </main>
+<main>
+<header>
+<p class="eyebrow">управление · {{.User}}</p>
+<h1>Семейные вишлисты</h1>
+<p>Выберите, чей список хотите изменить.</p>
+</header>
+<nav class="profiles" aria-label="Доступные профили">{{range .Profiles}}<a class="profile-card" href="/admin/{{.Slug}}">
+<span class="profile-name">{{.Name}}</span>
+<span aria-hidden="true">↗</span>
+</a>{{end}}</nav>
+</main>
 </body>
 </html>{{end}}

@@ -2,7 +2,10 @@ module github.com/m-lushpaev/wishlist
 
 go 1.27.0
 
-require modernc.org/sqlite v1.39.1
+require (
+	golang.org/x/image v0.32.0
+	modernc.org/sqlite v1.39.1
+)
 
 require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
