@@ -90,3 +90,14 @@ class OpsTests(unittest.TestCase):
         self.assertIn('http.log.error.wishlist_public', result)
         self.assertEqual(result.count('request>uri delete'), 3)
         self.assertNotIn('strict-origin-when-cross-origin', result)
+
+
+    def test_authelia_preserves_indentless_rules(self):
+        module = load('family_config')
+        source = 'access_control:\n  default_policy: deny\n  rules:\n  - domain: old.example\n    policy: one_factor\n'
+        result = module.insert_acl_rule(source, ['group:admins'])
+        expected = 'access_control:\n  default_policy: deny\n  rules:\n  - domain: wish-admin.lushpaev.ru\n    subject:\n      - group:admins\n    policy: one_factor\n  - domain: old.example\n    policy: one_factor\n'
+        self.assertEqual(result, expected)
+        indented = source.replace('  - domain:', '    - domain:').replace('    policy:', '      policy:')
+        result = module.insert_acl_rule(indented, ['group:admins'])
+        self.assertIn('    - domain: wish-admin.lushpaev.ru\n      subject:\n        - group:admins', result)

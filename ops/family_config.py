@@ -64,23 +64,30 @@ def authelia_config(text):
             raise ValueError('unexpected dedicated wishlist ACL')
     if not any('wish-admin.lushpaev.ru' in rule.get('domain', []) for rule in rules):
         raise ValueError('existing wishlist ACL not found')
-    section = re.search(r'^access_control:\s*\n(?:(?!^[^\s#]).*\n)*', text, re.M)
-    if not section:
-        raise ValueError('access_control section not found')
-    part = section.group()
-    anchor = re.search(r'^( +)rules:\s*\n', part, re.M)
-    if not anchor:
-        raise ValueError('rules anchor not found')
-    indent = anchor.group(1) + '  '
-    addition = indent + '- domain: wish-admin.lushpaev.ru\n' + indent + '  subject:\n'
-    addition += ''.join(indent + '    - ' + group + '\n' for group in groups)
-    addition += indent + '  policy: one_factor\n'
-    offset = section.start() + anchor.end()
-    changed = text[:offset] + addition + text[offset:]
+    changed = insert_acl_rule(text, groups)
     parsed = yaml.safe_load(changed)
     if parsed['access_control']['rules'][1:] != rules:
         raise ValueError('unexpected ACL changes')
     return changed
+
+
+def insert_acl_rule(text, groups):
+    section = re.search(r'^access_control:\s*\n(?:(?!^[^\s#]).*\n)*', text, re.M)
+    if not section:
+        raise ValueError('access_control section not found')
+    part = section.group()
+    anchor = re.search(r'^( +)rules:[ \t]*\n', part, re.M)
+    if not anchor:
+        raise ValueError('rules anchor not found')
+    sequence = re.search(r'^( *)-[ \t]', part[anchor.end():], re.M)
+    if not sequence or len(sequence.group(1)) < len(anchor.group(1)):
+        raise ValueError('rules sequence indentation not found')
+    indent = sequence.group(1)
+    addition = indent + '- domain: wish-admin.lushpaev.ru\n' + indent + '  subject:\n'
+    addition += ''.join(indent + '    - ' + group + '\n' for group in groups)
+    addition += indent + '  policy: one_factor\n'
+    offset = section.start() + anchor.end()
+    return text[:offset] + addition + text[offset:]
 
 
 def main():
