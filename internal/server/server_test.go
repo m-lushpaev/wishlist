@@ -22,6 +22,7 @@ func TestReserveConflictAndCancel(t *testing.T) {
 	if home.Code != http.StatusOK || !strings.Contains(home.Body.String(), "Test Wish") {
 		t.Fatalf("home: status=%d body=%s", home.Code, home.Body.String())
 	}
+	assertFormReferrerPolicy(t, home)
 	cookie := home.Result().Cookies()[0]
 	form := url.Values{"csrf": {cookie.Value}, "name": {"Friend"}, "note": {"Keep secret"}}
 	headers := map[string]string{"Origin": "https://wish.test", "HX-Request": "true", "Content-Type": "application/x-www-form-urlencoded"}
@@ -38,6 +39,9 @@ func TestReserveConflictAndCancel(t *testing.T) {
 	if conflict.Code != http.StatusOK || !strings.Contains(conflict.Body.String(), "уже зарезервирован") {
 		t.Fatalf("conflict: status=%d body=%s", conflict.Code, conflict.Body.String())
 	}
+
+	receipt := request(t, handler, http.MethodGet, "/reservation/"+tokenMatch[1], nil, "wish.test", nil, cookie)
+	assertFormReferrerPolicy(t, receipt)
 
 	cancelled := request(t, handler, http.MethodPost, "/reservation/"+tokenMatch[1]+"/cancel", strings.NewReader(form.Encode()), "wish.test", headers, cookie)
 	if cancelled.Code != http.StatusSeeOther || cancelled.Header().Get("Location") != "/maksim" {
@@ -112,5 +116,25 @@ func writeTestFile(t *testing.T, path, content string) {
 	}
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A document-level same-origin policy keeps native POST Origin intact while
+// withholding the receipt URL from external sites. The HTTP default remains
+// no-referrer for responses without a form document.
+func assertFormReferrerPolicy(t *testing.T, response *httptest.ResponseRecorder) {
+	t.Helper()
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `<meta name="referrer" content="same-origin">`) {
+		t.Fatalf("form document must preserve same-origin POST without external referrers: status=%d", response.Code)
+	}
+}
+
+func TestAdminFormReferrerPolicy(t *testing.T) {
+	handler, cleanup := testHandler(t)
+	defer cleanup()
+	headers := map[string]string{"Remote-User": "maks", "Remote-Groups": "admins"}
+	for _, path := range []string{"/admin/anya/new", "/admin/maksim/wishes/test-wish/edit"} {
+		page := request(t, handler, http.MethodGet, path, nil, "wish-admin.test", headers)
+		assertFormReferrerPolicy(t, page)
 	}
 }

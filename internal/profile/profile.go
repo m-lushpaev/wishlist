@@ -1,11 +1,12 @@
 package profile
 
 type Profile struct {
-	Slug string
-	Name string
+	Slug     string
+	Name     string
+	Genitive string
 }
 
-var profiles = [...]Profile{{"maksim", "Максим"}, {"anya", "Аня"}, {"grisha", "Гриша"}, {"arisha", "Ариша"}}
+var profiles = [...]Profile{{"maksim", "Максим", "Максима"}, {"anya", "Аня", "Ани"}, {"grisha", "Гриша", "Гриши"}, {"arisha", "Ариша", "Ариши"}}
 
 func All() []Profile { return append([]Profile(nil), profiles[:]...) }
 
