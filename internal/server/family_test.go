@@ -136,7 +136,7 @@ func TestAdminCreateConflictPersistenceAndCrossProfile(t *testing.T) {
 	if res := save("/admin/maksim/wishes", values, headers); res.Code != 403 {
 		t.Fatal("cross-profile write", res.Code)
 	}
-	for _, origin := range []string{"https://wish.test", "https://wish-admin.test:444", "https://wish-admin.test/", "https://evil.test", ""} {
+	for _, origin := range []string{"https://wish.test", "https://wish-admin.test:444", "https://wish-admin.test/", "https://evil.test", "null", ""} {
 		bad := adminHeaders("wishlist-anya")
 		bad["Origin"] = origin
 		if res := save("/admin/anya/wishes", values, bad); res.Code != 403 {

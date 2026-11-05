@@ -48,6 +48,7 @@ type wishView struct {
 }
 
 type homeView struct {
+	Profiles                           []profile.Profile
 	Profile                            profile.Profile
 	ProfilePath                        string
 	Wishes                             []wishView
@@ -75,7 +76,7 @@ func New(config Config, database *store.DB) (*Server, error) {
 	if config.PublicHost == "" || config.AdminHost == "" || config.PublicHost == config.AdminHost {
 		return nil, errors.New("distinct public and admin hosts required")
 	}
-	templates, err := template.New("").Funcs(template.FuncMap{"date": func(t time.Time) string { return t.Local().Format("02.01.2006 15:04") }}).ParseFS(webFiles, "templates/*.html")
+	templates, err := template.New("").Funcs(template.FuncMap{"categoryLabel": categoryLabel, "date": func(t time.Time) string { return t.Local().Format("02.01.2006 15:04") }}).ParseFS(webFiles, "templates/*.html")
 	if err != nil {
 		return nil, err
 	}
@@ -235,6 +236,11 @@ func (s *Server) listProfile(w http.ResponseWriter, r *http.Request, p string) {
 	csrf := ensureCSRF(w, r)
 	prof, _ := profile.Lookup(p)
 	view := homeView{Profile: prof, ProfilePath: s.profilePath(p), ActiveStatus: status, ActiveCategory: category, CSRF: csrf}
+	for _, candidate := range profile.All() {
+		if s.enabled(candidate.Slug) {
+			view.Profiles = append(view.Profiles, candidate)
+		}
+	}
 	categories := map[string]bool{}
 	for _, e := range data.Entries {
 		if e.Hidden {
@@ -514,5 +520,18 @@ func (s *Server) execute(w http.ResponseWriter, r *http.Request, name string, da
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := s.templates.ExecuteTemplate(w, name, data); err != nil {
 		slog.Error("render failed", "template", name, "error", err, "path", safeLogPath(r))
+	}
+}
+
+func categoryLabel(value string) string {
+	switch strings.ToLower(value) {
+	case "cycling":
+		return "Велосипед"
+	case "clothing":
+		return "Одежда"
+	case "reading":
+		return "Книги"
+	default:
+		return value
 	}
 }

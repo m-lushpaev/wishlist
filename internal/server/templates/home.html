@@ -2,49 +2,65 @@
 <html lang="ru">
 <head>
   <meta charset="utf-8">
+<meta name="referrer" content="same-origin">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Вишлист · {{.Profile.Name}}">
+  <meta name="theme-color" content="#e8eae6" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#141a18" media="(prefers-color-scheme: dark)">
   <title>Вишлист · {{.Profile.Name}}</title>
   <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/styles.css?v=family-1">
+  <link rel="stylesheet" href="/styles.css?v=orbit-1">
   <script src="/static/htmx.min.js" defer></script>
 </head>
-<body>
-  <main>
-    <header>
-      <h1>wishlist_</h1>
-      <p>{{.Profile.Name}}. Вещи, которые хочу.</p>
-      <p><a href="/">← вишлисты семьи</a></p>
+<body class="orbit-page">
+  <div class="orbit-shell">
+    <header class="orbit-header">
+      <a class="orbit-brand" href="/">Лушпаевы</a>
+      <a class="orbit-header-link" href="/">Все вишлисты <span aria-hidden="true">↗</span></a>
     </header>
-
-    <nav class="filters" aria-label="Фильтры">
-      <a href="{{.ProfilePath}}?status=all" {{if eq .ActiveStatus "all"}}aria-current="page"{{end}}>все</a>
-      <a href="{{.ProfilePath}}?status=available" {{if eq .ActiveStatus "available"}}aria-current="page"{{end}}>свободные</a>
-      <a href="{{.ProfilePath}}?status=reserved" {{if eq .ActiveStatus "reserved"}}aria-current="page"{{end}}>занятые</a>
-      {{range .Categories}}<a href="{{$.ProfilePath}}?category={{.}}" {{if eq $.ActiveCategory .}}aria-current="page"{{end}}>{{.}}</a>{{end}}
-    </nav>
-
-    <ol class="wishes">
-      {{range .Wishes}}{{template "wish" .}}{{else}}<li class="empty">Здесь пока ничего нет.</li>{{end}}
-    </ol>
-    <footer><a href="https://github.com/m-lushpaev/wishlist">source</a></footer>
-  </main>
+    <main class="orbit-main">
+      <header class="wishlist-header">
+        <div>
+          <p class="eyebrow">Хочется однажды</p>
+          <h1>Вишлист {{.Profile.Genitive}}</h1>
+          <p class="wishlist-intro">Вещи, с которыми хорошие дни ещё лучше.</p>
+        </div>
+        <nav class="profile-nav" aria-label="Вишлисты семьи">
+          {{range .Profiles}}<a href="/{{.Slug}}" {{if eq .Slug $.Profile.Slug}}aria-current="page"{{end}}>
+            <span class="profile-dot" aria-hidden="true">{{printf "%.1s" .Name}}</span>
+            <span>{{.Name}}</span>
+          </a>{{end}}
+        </nav>
+      </header>
+      <nav class="filters orbit-filters" aria-label="Фильтры">
+        <a href="{{.ProfilePath}}?status=all" {{if and (eq .ActiveStatus "all") (eq .ActiveCategory "")}}aria-current="page"{{end}}>Все</a>
+        <a href="{{.ProfilePath}}?status=available" {{if eq .ActiveStatus "available"}}aria-current="page"{{end}}>Свободные</a>
+        <a href="{{.ProfilePath}}?status=reserved" {{if eq .ActiveStatus "reserved"}}aria-current="page"{{end}}>В резерве</a>
+        {{range .Categories}}<a href="{{$.ProfilePath}}?category={{.}}" {{if eq $.ActiveCategory .}}aria-current="page"{{end}}>{{categoryLabel .}}</a>{{end}}
+      </nav>
+      <ol class="wishes orbit-wishes">
+        {{range .Wishes}}{{template "wish" .}}{{else}}<li class="empty orbit-empty"><h2>Место для нового.</h2><p>Здесь пока ничего нет.</p></li>{{end}}
+      </ol>
+    </main>
+    <footer class="orbit-footer"><span>Ближе друг к другу.</span><a href="/">← К семье</a></footer>
+  </div>
 </body>
 </html>{{end}}
 
 {{define "wish"}}<li class="wish{{if .Reserved}} is-reserved{{end}}" id="wish-{{.Wish.ID}}">
+  <div class="wish-image"><img src="/{{.Wish.Image}}" alt="{{.Wish.Name}}" width="320" height="320" loading="lazy"></div>
   <div class="wish-copy">
-    <p class="eyebrow">{{.Wish.Category}} · {{if .Reserved}}reserved{{else}}available{{end}}</p>
+    <p class="eyebrow">{{categoryLabel .Wish.Category}}</p>
     <h2><a href="{{.Wish.URL}}" rel="noreferrer">{{.Wish.Name}}</a></h2>
-    <p>{{.Wish.Description}}</p>
+    <p class="wish-description">{{.Wish.Description}}</p>
     {{if .Wish.Note}}<p class="note">{{.Wish.Note}}</p>{{end}}
     {{if .Error}}<p class="form-error" role="alert">{{.Error}}</p>{{end}}
     {{if .Reserved}}
-      <p class="status">Уже зарезервировано.</p>
+      <p class="status"><span aria-hidden="true">✓</span> Уже зарезервировано.</p>
       {{if .CancelToken}}<p class="success">Готово. Сохрани <a href="/reservation/{{.CancelToken}}">секретную ссылку</a>, чтобы при необходимости отменить бронь.</p>{{end}}
     {{else}}
-      <details>
-        <summary>Зарезервировать</summary>
+      <details class="reserve-details">
+        <summary>Зарезервировать <span aria-hidden="true">↗</span></summary>
         <form method="post" action="/{{.Wish.Profile}}/reserve/{{.Wish.ID}}" hx-post="/{{.Wish.Profile}}/reserve/{{.Wish.ID}}" hx-target="closest .wish" hx-swap="outerHTML" hx-disabled-elt="find button">
           <input type="hidden" name="csrf" value="{{.CSRF}}">
           <label>Имя <span>(необязательно)</span><input name="name" maxlength="80" autocomplete="name"></label>
@@ -56,5 +72,4 @@
       </details>
     {{end}}
   </div>
-  <img src="/{{.Wish.Image}}" alt="{{.Wish.Name}}" width="320" height="320" loading="lazy">
 </li>{{end}}

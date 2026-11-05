@@ -2,21 +2,28 @@
 <html lang="ru">
 <head>
   <meta charset="utf-8">
+<meta name="referrer" content="same-origin">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
   <title>Бронь · {{.Wish.Name}}</title>
-  <link rel="stylesheet" href="/styles.css?v=family-1">
+  <link rel="stylesheet" href="/styles.css?v=orbit-1">
 </head>
-<body>
-  <main class="narrow">
-    <p class="eyebrow">reservation_</p>
-    <h1>{{.Wish.Name}}</h1>
-    <p>Подарок зарезервирован. Сохрани адрес этой страницы: только по нему можно отменить бронь.</p>
-    <form method="post" action="/reservation/{{.Token}}/cancel">
-      <input type="hidden" name="csrf" value="{{.CSRF}}">
-      <button class="secondary" type="submit">Отменить бронь</button>
-    </form>
-    <p><a href="{{.ProfilePath}}">← вернуться к списку</a></p>
-  </main>
+<body class="orbit-page">
+  <div class="orbit-shell">
+    <header class="orbit-header"><a class="orbit-brand" href="/">Лушпаевы</a><a class="orbit-header-link" href="{{.ProfilePath}}">← К вишлисту</a></header>
+    <main class="orbit-main reservation-main">
+      <section class="reservation-card">
+        <p class="eyebrow">Ваша бронь</p>
+        <h1>{{.Wish.Name}}</h1>
+        <p>Подарок зарезервирован. Сохрани адрес этой страницы: только по нему можно отменить бронь.</p>
+        <form method="post" action="/reservation/{{.Token}}/cancel">
+          <input type="hidden" name="csrf" value="{{.CSRF}}">
+          <button class="secondary" type="submit">Отменить бронь</button>
+        </form>
+        <p class="reservation-back"><a href="{{.ProfilePath}}">← Вернуться к списку</a></p>
+      </section>
+    </main>
+    <footer class="orbit-footer"><span>Ближе друг к другу.</span></footer>
+  </div>
 </body>
 </html>{{end}}

@@ -1,26 +1,35 @@
 {{define "landing.html"}}<!doctype html>
 <html lang="ru">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="Вишлисты семьи Лушпаевых. Выберите, кому хотите сделать подарок.">
-<title>Вишлисты семьи Лушпаевых</title>
-<link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="/styles.css?v=family-1">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Вишлисты семьи Лушпаевых. Выберите, кого хотите порадовать.">
+  <meta name="theme-color" content="#e8eae6" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#141a18" media="(prefers-color-scheme: dark)">
+  <title>Вишлисты семьи Лушпаевых</title>
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/styles.css?v=orbit-1">
 </head>
-<body>
-<main class="portal">
-<header>
-<p class="eyebrow">семья Лушпаевых</p>
-<h1>Подарки<br>с попаданием.</h1>
-<p class="intro">Здесь живут наши вишлисты. Выберите, кого хотите порадовать.</p>
-</header>
-<nav class="profiles" aria-label="Вишлисты семьи">{{range .}}<a class="profile-card" href="/{{.Slug}}">
-<span class="eyebrow">вишлист</span>
-<span class="profile-name">{{.Name}}</span>
-<span class="profile-arrow" aria-hidden="true">↗</span>
-</a>{{end}}</nav>
-<footer>Идеи для больших и маленьких поводов.</footer>
-</main>
+<body class="orbit-page">
+  <div class="orbit-shell">
+    <header class="orbit-header">
+      <a class="orbit-brand" href="/">Лушпаевы</a>
+      <a class="orbit-header-link" href="#family-profiles">Наши желания <span aria-hidden="true">↘</span></a>
+    </header>
+    <main class="orbit-main orbit-landing">
+      <section class="orbit-hero" aria-labelledby="portal-title">
+        <h1 id="portal-title">Самое ценное —<br><span>внимание.</span></h1>
+        <p>Здесь мы оставляем желания.<br>А друг для друга — немного вдохновения.</p>
+      </section>
+      <nav class="orbit-profiles" id="family-profiles" aria-label="Вишлисты семьи">
+        {{range .}}<a class="orbit-profile" href="/{{.Slug}}">
+          <span class="orbit-avatar" aria-hidden="true">{{printf "%.1s" .Name}}</span>
+          <span class="orbit-profile-name">{{.Name}}</span>
+          <span class="orbit-profile-caption">Вишлист</span>
+        </a>{{end}}
+      </nav>
+    </main>
+    <footer class="orbit-footer"><span>Ближе друг к другу.</span><span>Семья Лушпаевых</span></footer>
+  </div>
 </body>
 </html>{{end}}
